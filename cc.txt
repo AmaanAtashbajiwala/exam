@@ -1,0 +1,27 @@
+main folder->msa practical folder,domain.xml,jwt.jar,mysql connector.jar,payara.jar
+
+java with meaven->projrct from archtype
+
+javaee8 payara-microprofil-earchtype
+
+projectname:ResourceApp
+
+pom.xml
+    depedency->version->3.2
+
+restfulweb services->example services
+    @GET
+    @Path("/getHello")
+    @produces(mediatype.TEXT_HTML)
+    public String getHello(){
+        return "<h1>Hello</h1>";
+    }
+
+RUN->rest/example/getHello
+
+
+CRATE CLINE APP SAME AS ResourceApp
+
+create an interface in source packages
+package:interfaces
+interface:ExampleInterface
