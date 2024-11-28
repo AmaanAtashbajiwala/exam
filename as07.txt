@@ -1,0 +1,541 @@
+==>>package 
+
+npm i express mongoose express-session ejs multer dotenv
+npm i -D nodemon
+
+"start": "nodemon app.js"
+
+
+==>>make this directory
+models
+routes
+uploads
+views
+
+==>>.env
+PORT = 5000
+DB_URI = mongodb://localhost:27017/node_crud
+
+==>>main.js
+require("dotenv").config();
+const express = require("express")
+const mongoose = require("mongoose")
+const session = require("express-session")
+
+const app = express();
+const PORT = process.env.PORT || 4000;
+
+// database connection
+//mongoose.connect(process.env.DB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect(process.env.DB_URI);
+const db = mongoose.connection;
+db.on("error", (error) => console.log(error));
+db.once("open", () => console.log("Connected to the Database"));
+
+// middleware
+app.use(express.urlencoded({extends:false}));
+app.use(express.json());
+
+app.use(
+    session({
+        secret:"my secret key",
+        saveUninitialized:true,
+        resave:false,
+    })
+);
+
+app.use((req,res,next)=>{
+    res.locals.message=req.session.message;
+    delete req.session.message;
+    next();
+});
+
+app.use(express.static("uploads"));
+
+// set template engine
+app.set("view engine","ejs");
+
+// route prefix
+app.use("",require("./routes/routes"));
+
+app.listen(PORT, () => {
+    console.log(`Server Strated at http://localhost:${PORT}`);
+});
+
+
+==>>users.js
+const mongoose = require("mongoose")
+const userSchema = new mongoose.Schema({
+    name:{
+        type:String,
+        required:true,
+    },
+    email:{
+        type:String,
+        required:true,
+    },
+    phone:{
+        type:String,
+        required:true,
+    },
+    image:{
+        type:String,
+        required:true,
+    },
+    created:{
+        type:String,
+        required:true,
+        default:Date.now,
+    },
+});
+
+module.exports=mongoose.model("User",userSchema);
+
+==>>routes.js
+const express = require("express")
+const router = express.Router();
+const User = require("../models/users");
+const multer = require("multer");
+const { fileLoader, name } = require("ejs");
+const users = require("../models/users");
+const fs = require("fs");
+const { type } = require("os");
+
+//image upload
+var storage = multer.diskStorage({
+    destination: function (req, res, cb) {
+        cb(null, "./uploads")
+    },
+    filename: function (req, file, cb) {
+        cb(null, file.fieldname + "_" + Date.now() + "_" + file.originalname);
+    },
+});
+
+var upload = multer({
+    storage: storage,
+}).single('image');
+
+//Insert
+router.post("/add_user", upload, async (req, res) => {
+    try {
+        const newUser = new User({
+            image: req.file.filename,
+            name: req.body.name,
+            email: req.body.email,
+            phone: req.body.phone,
+        });
+
+        await newUser.save(); // Use await to handle the promise
+        req.session.message = {
+            type: 'success',
+            message: "User Added Successfully"
+        };
+        res.redirect('/');
+    } catch (err) {
+        res.json({ message: err.message, type: 'danger' });
+    }
+});
+
+//Display all users
+router.get("/", async (req, res) => {
+    try {
+        const users = await User.find();  // Use await instead of .exec() with a callback
+        res.render("index", {
+            title: "Home Page",
+            users: users,  // Pass users to the view
+        });
+    } catch (err) {
+        res.json({ message: err.message });
+    }
+});
+
+
+router.get("/add", (req, res) => {
+    res.render('add', { title: "Add User" });
+});
+
+//edit an user route
+router.get("/edit/:id", async (req, res) => {
+    try {
+        let id = req.params.id;
+        const user = await User.findById(id); // Use await to handle the promise
+
+        if (!user) {
+            // If no user is found, redirect to the home page
+            return res.redirect("/");
+        }
+
+        // Render the edit page and pass the user data
+        res.render("edit", {
+            title: "Edit User",
+            user: user
+        });
+    } catch (err) {
+        console.error(err); // Log any errors
+        res.redirect("/");  // Redirect in case of an error
+    }
+});
+
+//update user route
+router.post("/edit/:id", upload, async (req, res) => {
+    let id = req.params.id;
+    let new_image = "";
+
+    if (req.file) {
+        new_image = req.file.filename;
+        try {
+            fs.unlinkSync("./uploads/" + req.body.old_image); // Delete the old image
+        } catch (err) {
+            console.log(err);
+        }
+    } else {
+        new_image = req.body.old_image; // Keep the old image if no new image is uploaded
+    }
+
+    try {
+        await User.findByIdAndUpdate(id, {
+            image: new_image,
+            name: req.body.name,
+            email: req.body.email,
+            phone: req.body.phone,
+        });
+
+        req.session.message = {
+            type: "success",
+            message: "User Updated Successfully",
+        };
+        res.redirect("/");
+    } catch (err) {
+        res.json({ message: err.message, type: "danger" });
+    }
+});
+
+//delete user
+router.get("/delete/:id", async (req, res) => {
+    let id = req.params.id;
+
+    try {
+        const result = await User.findByIdAndDelete(id); // Use await to handle the promise
+
+        if (result && result.image != "") {
+            try {
+                fs.unlinkSync("./uploads/" + result.image); // Delete the associated image
+            } catch (err) {
+                console.log(err);
+            }
+        }
+
+        req.session.message = {
+            type: "info",
+            message: "User deleted successfully",
+        };
+        res.redirect("/");
+    } catch (err) {
+        res.json({ message: err.message });
+    }
+});
+
+
+module.exports = router;
+
+
+==>>index.ejs
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>
+        <%= title %>
+    </title>
+</head>
+
+<body>
+    <a href="/add">Add User</a>
+    <br>
+    <% if (users.length> 0) { %>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Image</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% users.forEach((row, index)=> { %>
+                    <tr>
+                        <td>
+                            <%= index + 1 %>
+                        </td>
+                        <td><img src="/<%= row.image %>" width="50" height="50"></td>
+                        <td>
+                            <%= row.name %>
+                        </td>
+                        <td>
+                            <%= row.email %>
+                        </td>
+                        <td>
+                            <%= row.phone %>
+                        </td>
+                        <td>
+                            <a href="/edit/<%= row._id %>">edit</a>
+                        </td>
+                        <td>
+                            <a href="/delete/<%= row._id %>">delete</a>
+                        </td>
+                    </tr>
+                    <% }) %>
+            </tbody>
+        </table>
+        <% } else { %>
+            <h1>No users found in the database</h1>
+            <% } %>
+</body>
+
+</html>
+
+==>>add.ejs
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>
+        <%= title %>
+    </title>
+</head>
+
+<body>
+
+
+
+    <h2>Add User</h2>
+
+    <form action="/add_user" method="post" enctype="multipart/form-data">
+       
+        <label for="image">Image:</label>
+        <input type="file" id="image" name="image" accept="image/*" required>
+        <br>
+
+        <label for="name">Name:</label>
+        <input type="text" id="name" name="name" placeholder="Enter name" required>
+        <br>
+
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" placeholder="Enter email" required>
+        <br>
+
+        <label for="phone">Phone:</label>
+        <input type="tel" id="phone" name="phone" placeholder="Enter phone number" required>
+        <br>
+
+        <input type="submit" value="Add User">
+    </form>
+
+
+</body>
+
+</html>
+
+==>>edit.ejs
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>
+        <%= title %>
+    </title>
+</head>
+
+<body>
+
+
+
+    <h2>Edit User <%= user.name %></h2>
+
+    <form action="/edit/<%= user._id %>" method="post" enctype="multipart/form-data">
+       
+        <label for="image">Image:</label>
+        <input type="file" id="image" name="image" accept="image/*">
+        <img src="/<%= user.image %>" width="100">
+        <input type="hidden" name="old_image" value="<%= user.image %>">
+        <br>
+
+        <label for="name">Name:</label>
+        <input type="text" id="name" name="name" value="<%= user.name %>" placeholder="Enter name" required>
+        <br>
+
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" value="<%= user.email %>" placeholder="Enter email" required>
+        <br>
+
+        <label for="phone">Phone:</label>
+        <input type="tel" id="phone" name="phone" value="<%= user.phone %>" placeholder="Enter phone number" required>
+        <br>
+
+        <input type="submit" value="Update User">
+    </form>
+
+
+</body>
+
+</html>
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+install-->npm install express-session bcrypt body-parser connect-flash
+
+==>user.js
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema({
+    name: String,
+    email: { type: String, unique: true },
+    phone: String,
+    image: String,
+    password: { type: String, required: true }
+});
+
+module.exports = mongoose.model("User", userSchema);
+
+==>main.js
+const session = require("express-session");
+const flash = require("connect-flash");
+const bodyParser = require("body-parser");
+
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(session({
+    secret: 'your-secret-key',
+    resave: false,
+    saveUninitialized: true,
+}));
+app.use(flash());
+
+// Middleware to pass messages to views
+app.use((req, res, next) => {
+    res.locals.message = req.session.message;
+    delete req.session.message;
+    next();
+});
+
+
+
+==>route.js
+const bcrypt = require("bcrypt");
+
+// Login Page
+router.get("/login", (req, res) => {
+    res.render("login", { title: "Login" });
+});
+
+// Login User
+router.post("/login", async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        const user = await User.findOne({ email: email });
+
+        if (!user) {
+            req.session.message = {
+                type: 'danger',
+                message: 'User not found!',
+            };
+            return res.redirect("/login");
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            req.session.message = {
+                type: 'danger',
+                message: 'Invalid credentials!',
+            };
+            return res.redirect("/login");
+        }
+
+        req.session.user = user; // Store user session
+        req.session.message = {
+            type: 'success',
+            message: 'Logged in successfully!',
+        };
+        res.redirect("/");
+    } catch (err) {
+        res.json({ message: err.message });
+    }
+});
+
+// Logout
+router.get("/logout", (req, res) => {
+    req.session.destroy(err => {
+        if (err) return res.redirect("/");
+        res.redirect("/login");
+    });
+});
+
+// Middleware to protect routes
+function isAuthenticated(req, res, next) {
+    if (req.session.user) {
+        return next();
+    }
+    res.redirect("/login");
+}
+
+// Protect specific route
+router.get("/", isAuthenticated, async (req, res) => {
+    try {
+        const users = await User.find();
+        res.render("index", {
+            title: "Home Page",
+            users: users,
+        });
+    } catch (err) {
+        res.json({ message: err.message });
+    }
+});
+
+
+
+==>register.js
+router.get("/register", (req, res) => {
+    res.render("register", { title: "Register" });
+});
+
+router.post("/register", async (req, res) => {
+    const { name, email, phone, password } = req.body;
+
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newUser = new User({
+            name,
+            email,
+            phone,
+            password: hashedPassword,
+            image: "" // Placeholder
+        });
+
+        await newUser.save();
+        req.session.message = {
+            type: 'success',
+            message: 'User registered successfully!',
+        };
+        res.redirect("/login");
+    } catch (err) {
+        res.json({ message: err.message });
+    }
+});
+
+
+
+
+
+
+
+
